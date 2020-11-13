@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import subprocess
+import sys
+
+IMAGE_DIR='images'
+KS_DIR='ks'
+
+images = {
+    'centos7': 'http://ftp.jaist.ac.jp/pub/Linux/CentOS/7.9.2009/isos/x86_64/CentOS-7-x86_64-DVD-2009.iso',
+    'centos8': 'http://ftp.jaist.ac.jp/pub/Linux/CentOS/8.2.2004/isos/x86_64/CentOS-8.2.2004-x86_64-dvd1.iso',
+}
+
+def get_image_path(distro):
+    url = images[distro]
+    image_path = os.path.join(IMAGE_DIR, os.path.split(url)[1])
+
+    if not os.path.exists(image_path):
+        print("{} does not exit. Need to download...".format(image_path))
+
+        if not os.path.exists(IMAGE_DIR):
+            os.makedirs(IMAGE_DIR)
+        run_command(['wget', url], cwd=IMAGE_DIR)
+
+    return image_path
+
+def run_command(cmd, cwd=None):
+    print('Running "{}"'.format(' '.join(cmd)))
+
+    ret_code = subprocess.call(cmd, cwd=cwd)
+    if ret_code:
+        print("failed with retcode {0}".format(ret_code), file=sys.stderr)
+
+def clean(name):
+
+    stat = subprocess.run(['virsh', 'domstate', name], capture_output=True,
+                          encoding='utf8')
+
+    if stat.returncode != 0:
+        # this domain does not exist
+        return
+
+    if stat.stdout.rstrip() == 'running':
+        print('stopping {}'.format(name))
+        run_command(['virsh', 'destroy', name])
+
+    run_command(['virsh', 'undefine', name])
+    run_command(['virsh', 'vol-delete', '--pool=default', '{}.qcow2'.format(name)])
+
+
+def install(name, args):
+    extra_args = []
+
+    cmd = ['virt-install',
+           '--name={}'.format(name),
+           '--ram={}'.format(args.ram),
+           '--disk', 'size={}'.format(args.disk_sz),
+           '--location', get_image_path(args.distro),
+           '--accelerate',
+           '--hvm']
+
+    if not args.graphics:
+        cmd.append('--nographics')
+        extra_args.append('console=ttyS0')
+
+    if not args.no_ks:
+        ks_file = args.distro + '-ks.cfg'
+        ks_path = os.path.join(KS_DIR, ks_file)
+        if os.path.exists(ks_path):
+            cmd.append('--initrd-inject={}'.format(ks_path))
+            extra_args.append('inst.ks=file:/{}'.format(ks_file))
+
+    if extra_args:
+        cmd.append('--extra-args')
+        cmd.append(' '.join(extra_args))
+
+    run_command(cmd)
+
+def main():
+    parser = argparse.ArgumentParser(description='Create a virtual machine')
+
+    parser.add_argument('-c', '--clean', action='store_true',
+                        help='clean')
+
+    parser.add_argument('-f', '--force', action='store_true',
+                        help='overwrite existing domain(s)')
+
+    parser.add_argument('--distro', default='centos7',
+                        help='Distribution')
+
+    parser.add_argument('-g', '--graphics', action='store_true',
+                        help='GUI mode')
+
+    parser.add_argument('-K', '--no-ks', action='store_true',
+                        help='do not use kickstart file')
+
+    parser.add_argument('--ram', type=int, default=4096,
+                        help='RAM size')
+
+    parser.add_argument('--disk-sz', type=int, default=64,
+                        help='Disk size in GB')
+
+    parser.add_argument('domains', type=str, nargs='+',
+                        help='names of virtual machines to create')
+
+    args = parser.parse_args()
+
+    for name in args.domains:
+        if args.clean:
+            clean(name)
+        else:
+            if args.force:
+                clean(name)
+            install(name, args)
+
+if __name__ == '__main__':
+    main()
