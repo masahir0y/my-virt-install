@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 
 import argparse
+import configparser
 import os
 import subprocess
 import sys
+import tempfile
+import shutil
 
-IMAGE_DIR='images'
-KS_DIR='ks'
+this_dir = os.path.dirname(__file__)
 
-images = {
-    'centos7': 'http://ftp.jaist.ac.jp/pub/Linux/CentOS/7.9.2009/isos/x86_64/CentOS-7-x86_64-DVD-2009.iso',
-    'centos8': 'http://ftp.jaist.ac.jp/pub/Linux/CentOS/8.2.2004/isos/x86_64/CentOS-8.2.2004-x86_64-dvd1.iso',
-}
+IMAGE_DIR = os.path.join(this_dir, 'images')
+KS_DIR = os.path.join(this_dir, 'ks')
+DISTRO_CONFIG = os.path.join(this_dir, 'distro.ini')
+DOMAIN_CONFIG = os.path.join(this_dir, 'domain.ini')
 
 def get_image_path(distro):
-    url = images[distro]
+    url = distro['url']
     image_path = os.path.join(IMAGE_DIR, os.path.split(url)[1])
 
     if not os.path.exists(image_path):
@@ -26,12 +28,14 @@ def get_image_path(distro):
 
     return image_path
 
+
 def run_command(cmd, cwd=None):
     print('Running "{}"'.format(' '.join(cmd)))
 
     ret_code = subprocess.call(cmd, cwd=cwd)
     if ret_code:
         print("failed with retcode {0}".format(ret_code), file=sys.stderr)
+
 
 def clean(name):
 
@@ -50,14 +54,30 @@ def clean(name):
     run_command(['virsh', 'vol-delete', '--pool=default', '{}.qcow2'.format(name)])
 
 
-def install(name, args):
+def generate_ks(ks_path, name, config, distro):
+
+    print('Generating kickstartfile: {}'.format(ks_path))
+
+    out = open(ks_path, 'w')
+
+    for line in open(os.path.join(KS_DIR, distro['ks'])):
+        line = line.replace('@hostname@', name)
+        line = line.replace('@mac@', config['mac'])
+        line = line.replace('@ip@', config['ip'])
+        out.write(line)
+
+
+def install(name, args, config, distro):
     extra_args = []
+    tempdir = ''
 
     cmd = ['virt-install',
            '--name={}'.format(name),
-           '--ram={}'.format(args.ram),
-           '--disk', 'size={}'.format(args.disk_sz),
-           '--location', get_image_path(args.distro),
+           '--vcpus={}'.format(config['cpus']),
+           '--ram={}'.format(config['ram']),
+           '--disk', 'size={},bus=virtio'.format(config['disksize']),
+           '--network', 'network={},mac={}'.format(config['network'], config['mac']),
+           '--location', get_image_path(distro),
            '--accelerate',
            '--hvm']
 
@@ -66,17 +86,22 @@ def install(name, args):
         extra_args.append('console=ttyS0')
 
     if not args.no_ks:
-        ks_file = args.distro + '-ks.cfg'
-        ks_path = os.path.join(KS_DIR, ks_file)
-        if os.path.exists(ks_path):
-            cmd.append('--initrd-inject={}'.format(ks_path))
-            extra_args.append('inst.ks=file:/{}'.format(ks_file))
+        tempdir = tempfile.mkdtemp()
+        ks_path = os.path.join(tempdir, 'ks.cfg')
+
+        generate_ks(ks_path, name, config, distro)
+        cmd.append('--initrd-inject={}'.format(ks_path))
+        extra_args.append('inst.ks=file:/{}'.format('ks.cfg'))
 
     if extra_args:
         cmd.append('--extra-args')
         cmd.append(' '.join(extra_args))
 
     run_command(cmd)
+
+    if ks_path:
+        shutil.rmtree(tempdir)
+
 
 def main():
     parser = argparse.ArgumentParser(description='Create a virtual machine')
@@ -87,33 +112,39 @@ def main():
     parser.add_argument('-f', '--force', action='store_true',
                         help='overwrite existing domain(s)')
 
-    parser.add_argument('--distro', default='centos7',
-                        help='Distribution')
-
     parser.add_argument('-g', '--graphics', action='store_true',
                         help='GUI mode')
 
     parser.add_argument('-K', '--no-ks', action='store_true',
                         help='do not use kickstart file')
 
-    parser.add_argument('--ram', type=int, default=4096,
-                        help='RAM size')
-
-    parser.add_argument('--disk-sz', type=int, default=64,
-                        help='Disk size in GB')
-
     parser.add_argument('domains', type=str, nargs='+',
                         help='names of virtual machines to create')
 
     args = parser.parse_args()
 
+    distro_config = configparser.ConfigParser()
+    distro_config.read(DISTRO_CONFIG)
+    domain_config = configparser.ConfigParser()
+    domain_config.read(DOMAIN_CONFIG)
+
     for name in args.domains:
+
         if args.clean:
             clean(name)
         else:
             if args.force:
                 clean(name)
-            install(name, args)
+
+            if name in domain_config:
+                config = domain_config[name]
+            else:
+                config = domain_config['DEFAULT']
+
+            distro = distro_config[config['distro']]
+
+            install(name, args, config, distro)
+
 
 if __name__ == '__main__':
     main()
