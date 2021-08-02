@@ -95,6 +95,9 @@ def install(name, args, config, distro):
         cmd.append('--initrd-inject={}'.format(ks_path))
         extra_args.append('inst.ks=file:/{}'.format('ks.cfg'))
 
+    if args.extra_args:
+        extra_args.append(args.extra_args)
+
     if extra_args:
         cmd.append('--extra-args')
         cmd.append(' '.join(extra_args))
@@ -110,6 +113,9 @@ def main():
 
     parser.add_argument('-c', '--clean', action='store_true',
                         help='clean')
+
+    parser.add_argument('-x', '--extra-args', type=str, default='',
+                        help='additional kernel command line arguments')
 
     parser.add_argument('-f', '--force', action='store_true',
                         help='overwrite existing domain(s)')
