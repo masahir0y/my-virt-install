@@ -63,7 +63,9 @@ def generate_ks(ks_path, name, config, distro):
     for line in open(os.path.join(KS_DIR, distro['ks'])):
         line = line.replace('@hostname@', name)
         line = line.replace('@mac@', config['mac'])
-        line = line.replace('@ip@', config['ip'])
+        line = line.replace('@ipprefix@', config['ipprefix'])
+        line = line.replace('@ipv6prefix@', config['ipv6prefix'])
+        line = line.replace('@iid@', config['iid'])
         out.write(line)
 
 
