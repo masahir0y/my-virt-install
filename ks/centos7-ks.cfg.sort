@@ -1,0 +1,64 @@
+#version=DEVEL
+# System authorization information
+auth --enableshadow --passalgo=sha512
+# Use text mode install
+text
+
+# Keyboard layouts
+keyboard --vckeymap=us --xlayouts='us'
+
+%packages
+@^minimal
+@core
+nano
+net-tools
+kexec-tools
+wget
+
+%end
+
+# System language
+lang en_US.UTF-8
+
+# Network information
+# --device can be an interface name such as 'eth0' or mac address
+network  --bootproto=static --device=@mac@ --gateway=@ipprefix@.1 --ip=@ipprefix@.@iid@ --netmask=255.255.255.0 --nameserver=@ipprefix@.1 --ipv6=@ipv6prefix@::@iid@/64 --activate --ipv6gateway=@ipv6prefix@::1
+network  --hostname=@hostname@.localdomain
+
+# Use CDROM installation media
+cdrom
+
+# Run the Setup Agent on first boot
+firstboot --enable
+# Do not configure the X Window System
+skipx
+
+# System services
+services --disabled="chronyd"
+
+# disable for Robin installation
+selinux --disabled
+
+ignoredisk --only-use=vda
+# System bootloader configuration
+bootloader --append=" crashkernel=auto" --location=mbr --boot-drive=vda
+autopart --type=lvm
+# Partition clearing information
+clearpart --none --initlabel
+
+# System timezone
+timezone Asia/Tokyo --isUtc --nontp
+
+# Root password
+rootpw --iscrypted $6$SlXsxk/NeTk8zfBI$RQdn6G0h5qI01LUtkpm7gTXnXZeVNOaPlvtnqa5hfBpbcJi1f7FieFFEHQ1pItDG//IE1zIeBtpAbahr5nPjQ0
+user --name=masahiro --password=$6$Y4T5qRoDaubGnI7p$/81Mwke1fYwA29bK7MuXyXcZNVruLm7bgvsPO6Kj4vBH69vQgLLFFfR.7V5RqgyIbBED32vrUyB2yz8MwbFSg/ --iscrypted --gecos="Masahiro Yamada"
+
+%addon com_redhat_kdump --enable --reserve-mb='auto'
+
+%end
+
+%anaconda
+pwpolicy root --minlen=6 --minquality=1 --notstrict --nochanges --notempty
+pwpolicy user --minlen=6 --minquality=1 --notstrict --nochanges --emptyok
+pwpolicy luks --minlen=6 --minquality=1 --notstrict --nochanges --notempty
+%end
